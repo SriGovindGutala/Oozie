@@ -1,0 +1,371 @@
+## To start oozie service
+sudo service oozie start
+
+## To check if oozie is up and running
+oozie admin -oozie http://quickstart.cloudera:11000/oozie -status
+oozie admin -version
+
+## To get the oozie server name
+cd /etc/oozie/conf
+vi oozie-site.xml  << find oozie base url >>
+
+## oozie comes with some examples (with actions and workflows) in built with the VM <<oozie-examples.tar.gz>>
+## To check the examples go to this folder ad copy it to local folder
+find /usr -name “oozie*examples*”
+ls /usr/share/doc/oozie-4.1.0+cdh5.5.0+222/oozie-examples.tar.gz
+cp /usr/share/doc/oozie-4.1.0+cdh5.5.0+222/oozie-examples.tar.gz .
+
+## untar the file (X-extract V-Verbose Z-Unzip F-AllFiles)
+## It creates a folder “example” 
+tar xvzf oozie-examples.tar.gz
+ 
+## Now we need to put this examples folder in HDFS
+## But, We should not put it directly into HDFS as the IP addresses will be different between the environments. Wherever the name node and resource manager IP addresses are relevant, 
+   it only uses localhost 
+cd examples 
+# src - SourseCode, apps - examples, input-data - data for examples
+cd apps
+ls -ltr
+
+————————————————————————————————————————————————————————————————————————————————————————————————
+## Let’s try a small example using java-main of apps folder
+cd java-main/
+ls lib/
+# oozie-examples-4.1.0-cdh5.5.0.jar is the file with code
+# This contains several example classes for this jar file
+jar tvf lib/oozie-examples-4.1.0-cdh5.5.0.jar
+# You can find the main class in this xml and the code which runs
+vi workflow.xml
+
+    <action name="java-node">
+        <java>
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+            </configuration>
+            <main-class>org.apache.oozie.example.DemoJavaMain</main-class>
+            <arg>Hello</arg>
+            <arg>Oozie!</arg>
+        </java>
+        <ok to="end"/>
+        <error to="fail"/>
+    </action>
+
+
+# properties file contains parameters which are required at the run time
+vi job.properties
+# check if the (HDFS Configuration) name node ip address with port number and resource manager/job tracker(YARN Configuration) ip address with port number are correct
+# You can check these configurations on Cloudera Manager by clicking HDFS and YARN. You can download the configuration files and check for the ip addresses or 
+  check it at /etc/hadoop/conf/core-site.xml and yarn-site.xml (resoursemanager address)
+# oozie.wf.application.path is the HDFS path for the application to execute
+For default CDH its 
+nameNode = hdfs://quickstart.cloudera:8020
+jobTracker = quickstart.cloudera:8032
+queueName=default
+examplesRoot=oozie/examples
+oozie.wf.application.path=${nameNode}/user/${user.name}/${examplesRoot}/apps/java-main
+
+## Lets check if the folder exists and paste the examples folder in HDFS 
+cd /home/cloudera/Desktop/oozie/
+hadoop fs -put examples /user/cloudera/oozie/examples
+hadoop fs -ls hdfs://quickstart.cloudera:8020/user/cloudera/oozie/examples/apps/java-main
+
+## Lets run the oozie job now
+# —oozie has ip address and port number where the oozie is running
+# -confi is the local file path where the oozie is configured 
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-config /home/cloudera/Desktop/oozie/examples/apps/java-main/job.properties \
+-run
+
+# The job starts running
+# If you need to check the status
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-info 0000001-160603181155356-oozie-oozi-W
+
+————————————————————————————————————————————————————————————————————————————————————————————————
+
+#### Executing a Map Reduce action ####
+
+## Change the configuration parameters in the local file system at
+cd /home/cloudera/Desktop/oozie/examples/apps/map-reduce/
+vi job.properties
+
+nameNode = hdfs://quickstart.cloudera:8020
+jobTracker = quickstart.cloudera:8032
+queueName=default
+examplesRoot=oozie/examples
+oozie.wf.application.path=${nameNode}/user/${user.name}/${examplesRoot}/apps/map-reduce/workflow.xml
+outputDir=map-reduce
+
+## place your jar file at 
+cd /home/cloudera/Desktop/oozie/examples/apps/map-reduce/lib/
+## Check the jar file for classes
+jar tvf lib/oozie-examples-4.1.0-cdh5.5.0.jar 
+
+## set Mapper class, Reducer class, Num Mappers, Input Directory, Output Directory
+vi workflow.xml<start to="mr-node"/>
+
+<workflow-app xmlns="uri:oozie:workflow:0.2" name="map-reduce-wf">
+    <start to="mr-node"/>
+    <action name="mr-node">
+        <map-reduce>
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <prepare>
+                <delete path="${nameNode}/user/${wf:user()}/${examplesRoot}/output-data/${outputDir}"/>
+            </prepare>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+                <property>
+                    <name>mapred.mapper.class</name>
+                    <value>org.apache.oozie.example.SampleMapper</value>
+                </property>
+                <property>
+                    <name>mapred.reducer.class</name>
+                    <value>org.apache.oozie.example.SampleReducer</value>
+                </property>
+                <property>
+                    <name>mapred.map.tasks</name>
+                    <value>1</value>
+                </property>
+                <property>
+                    <name>mapred.input.dir</name>
+                    <value>/user/${wf:user()}/${examplesRoot}/input-data/text</value>
+                </property>
+                <property>
+                    <name>mapred.output.dir</name>
+                    <value>/user/${wf:user()}/${examplesRoot}/output-data/${outputDir}</value>
+                </property>
+            </configuration>
+        </map-reduce>
+        <ok to="end"/>
+        <error to="fail"/>
+    </action>
+    <kill name="fail">
+        <message>Map/Reduce failed, error message[${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>
+
+
+
+## Place the examples directory in HDFS location 
+cd /home/cloudera/Desktop/oozie
+hadoop fs -put examples /user/cloudera/oozie/examples
+
+## run the oozie job
+# —oozie has ip address and port number where the oozie is running
+# -confi is the local file path where the oozie is configured 
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-config /home/cloudera/Desktop/oozie/examples/apps/java-main/job.properties \
+-run
+
+# The job starts running
+# If you need to check the status
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-info 0000001-160603181155356-oozie-oozi-W
+
+————————————————————————————————————————————————————————————————————————————————————————————————
+
+## Lets develop a sample oozie workflow for a pig script 
+## This is the same way to follow to execute any scripts: pig, hive, spark, etc
+
+## For Pig Script we will be using orders table which was imported from mySql to HDFS using Sqoop
+sqoop import \
+-connect ‘jdbc:mysql://quickstart.cloudera:3306/retail_db’ \
+—username retail_dba \
+—password cloudera \
+—table orders \
+—target-dir ‘/user/cloudera/sqoop/orders’ \
+-m 1 \
+—outdir java-files 
+
+## The requirement for the pig script is to count the number of orders per order status in the orders table
+cd /home/clouldera/Desktop/oozie/pig/
+vi orders_count.pig
+orders = LOAD ‘$INPUT’ USING PigStorage(‘,’) AS (order_id: int, order_date: chararray, customer_id:int, order_status: chararray);
+grouped = GROUP orders BY order_status;
+ordercount = FOREACH grouped GENERATE group, COUNT_STAR(orders) AS cnt;
+STORE orderscount INTO ‘$OUTPUT’;  
+
+## execute and check the pig commands
+pig orders_count.pig
+
+## Let’s now execute the pig script using the oozie workflow
+
+## we need to create the job.properties and workflow.xml in order to execute
+# you can copy from examples folder and edit them or create from scratch
+# oozie.use.system.libpath= true means you are giving access to use the library in HDFS which is already created when setting up oozie
+hadoop fs -ls /user/oozie/share/lib
+
+cd /home/clouldera/Desktop/oozie/pig/
+vi job.properties
+nameNode=hdfs://quickstart.cloudera:8020
+jobTracker=quickstart.cloudera:8032
+queueName=default
+pigRoot=oozie/pig
+inputDir=/user/${user.name}/sqoop/orders
+outputDir=/usr/${user.name}/oozie/pig/orders_count
+oozie.use.system.libpath=true
+oozie.wf.application.path=${nameNode}/user/${user.name}/${pigRoot}/
+
+cd /home/clouldera/Desktop/oozie/pig/
+vi workflow.xml
+<workflow-app xmlns="uri:oozie:workflow:0.2" name="pig-wf">
+    <start to="pig-workflow”/>
+    <action name="pig-workflow">
+        <pig>
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <prepare>
+                <delete path=“${outputDir}”/>
+            </prepare>
+            <configuration>
+                <property>
+                    <name>mapred.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+                <property>
+                    <name>mapred.compress.map.output</name>
+                    <value>true</value>
+                </property>
+                <property>
+                    <name>oozie.action.external.stats.write</name>
+                    <value>true</value>
+                </property>
+            </configuration>
+            <script>orders_count.pig</script>
+            <param>INPUT=${inputDir}</param>
+            <param>OUTPUT=${outputDir}/pig-output</param>
+        </pig>
+        <ok to="end"/>
+        <error to="fail"/>
+    </action>
+    <kill name="fail">
+        <message>Pig failed, error message[${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+    <end name="end"/>
+</workflow-app>
+
+## Place the pig directory in HDFS location 
+cd /home/cloudera/Desktop/oozie
+hadoop fs -put pig /user/cloudera/oozie/pig
+
+## run the oozie job
+# —oozie has ip address and port number where the oozie is running
+# -confi is the local file path where the oozie is configured 
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-config /home/cloudera/Desktop/oozie/pig/job.properties \
+-run
+
+# The job starts running
+# If you need to check the status
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-info 0000001-160603181155356-oozie-oozi-W
+
+# The job starts running
+# If you need to check the logs
+oozie job \
+-oozie http://quickstart.cloudera:11000/oozie \
+-log 0000001-160603181155356-oozie-oozi-W
+
+
+————————————————————————————————————————————————————————————————————————————————————————————————
+
+## Now Let’s actually schedule a Hive workflow to execute a series of hive DDL commands
+NOTE that you need to have the correct HIVE syntax for the commands.
+
+# To achieve this, we need to create files containing the HIVE commands 
+
+File 1 : external.hive
+Create external table external_table ( 
+name string, 
+age int, 
+address string, 
+zip int ) 
+row format delimited fields terminated by ',' 
+stored as textfile 
+location '/test/abc';
+
+File 2 : orc.hive
+Create Table orc_table ( 
+name string, -- Concate value of first name and last name with space as seperator 
+yearofbirth int, 
+age int, -- Current year minus year of birth 
+address string, 
+zip int ) 
+stored as ORC ;
+
+File 3 : Copydata.hql
+use ${database_name}; -- input from Oozie job.properties file
+insert into table orc_table 
+select concat(first_name,' ',last_name) as name, 
+yearofbirth, 
+year(from_unixtime) --yearofbirth as age, 
+address, 
+zip from external_table ;
+
+Now lets Create the oozie workflow for all the above hive commands.
+
+ <!-- This is a comment -->
+<workflow-app xmlns="uri:oozie:workflow:0.4" name="simple-Workflow">
+  <start to="Create_External_Table" />
+<!—Step 1 -->
+  	<action name="Create_External_Table">
+ 		<hive xmlns="uri:oozie:hive-action:0.4">
+ 			<job-tracker>xyz.com:8088</job-tracker>
+ 			<name-node>hdfs://rootname</name-node>
+ 			<script>hdfs_path_of_script/external.hive</script>
+ 		</hive>
+ 		<ok to="Create_orc_Table" />
+ 		<error to="kill_job" />
+ 	</action>
+<!—Step 2 -->
+ 	<action name="Create_orc_Table">
+ 		<hive xmlns="uri:oozie:hive-action:0.4">
+  			<job-tracker>xyz.com:8088</job-tracker>
+ 			<name-node>hdfs://rootname</name-node>
+ 			<script>hdfs_path_of_script/orc.hive</script>
+ 		</hive>
+ 		<ok to="Insert_into_Table" />
+ 		<error to="kill_job" />
+ 	</action>
+<!—Step 3 -->
+ 	<action name="Insert_into_Table">
+ 		<hive xmlns="uri:oozie:hive-action:0.4">
+ 			<job-tracker>xyz.com:8088</job-tracker>
+ 			<name-node>hdfs://rootname</name-node>
+ 			<script>hdfs_path_of_script/Copydata.hive</script>
+ 			<param>database_name</param>
+ 		</hive>
+ 		<ok to="end" />
+ 		<error to="kill_job" />
+ 	</action>
+ <kill name="kill_job">
+ 	<message>Job failed</message>
+ </kill>
+ <end name="end" />
+</workflow-app>
+
+Action Nodes in the above example defines the type of job that the node will run. 
+Hive node inside the action node defines that the action is of type hive. 
+This could also have been a pig, java, shell action, etc. as per the job you want to run. 
+Each type of action can have its own type of tags. 
+The Script tag defines the script we will be running for that hive action. 
+The Param tag defines the values which we will pass into the hive script. (In this example we are passing database name in step 3).
+
+
+
