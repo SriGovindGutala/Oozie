@@ -368,4 +368,8 @@ The Script tag defines the script we will be running for that hive action.
 The Param tag defines the values which we will pass into the hive script. (In this example we are passing database name in step 3).
 
 
+A fork node splits one path of execution into multiple concurrent paths of execution.
 
+A join node waits until every concurrent execution path of a previous fork node arrives to it.
+
+The fork and join nodes must be used in pairs. The join node assumes concurrent execution paths are children of the same fork node.
